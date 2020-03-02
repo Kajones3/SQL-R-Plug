@@ -1,0 +1,151 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(odbc)
+
+con <- dbConnect(odbc(),
+                 Driver = "ODBC Driver 13 for SQL Server",
+                 Server = "VMCEDW01",
+                 Database = "Datamart_Analytics",
+                 Trusted_Connection = "yes",
+                 #UID = "vzawireless\\ken.jones",
+                 #PWD = rstudioapi::askForPassword("Database password"),
+                 Port = 1433)
+
+```
+
+
+```{sql, connection = con, output.var = "sales"}
+
+
+SELECT DISTINCT
+	CAST(ci.Date_Created AS DATE) AS CustomerDate
+	, CAST(si.DateCreated AS date) AS SalesDate
+	, si.InvoiceNum
+	, CASE WHEN ci.Customer_Name = '' THEN ci.First_Name + ' ' + ci.Last_Name ELSE ci.Customer_Name END AS CustomerName
+	, ci.Phone5 AS EmailAddress
+	, CAST(st.StoreName AS Varchar(500)) AS [StoreName]
+	, st.City AS StoreCity
+	, CAST(st.Province as varchar(500)) AS StoreState
+	, CAST(st.District as varchar(500)) AS District
+	, CAST(st.Region as varchar(500)) AS Region
+	, CAST(st.Area as varchar(500)) AS Area
+	, si.ActAssnNum AS [AssociationNumber]
+	, si.SerialNumber
+	, CAST(dev.Manufacturer as varchar(550)) AS Manufacturer
+	, dev.Model
+	, dev.SubMetric
+	, act.Sku
+	, si.DeviceName
+	, si.DeviceQty
+	, si.ActivationQty
+	, CAST(0 AS Int) AS AccessoryQty
+	, TotalGrossProfit AS GeneralGP
+
+	
+FROM
+--rq_raw.dbo.iQclerk_SaleInvoices AS si WITH(NOLOCK)
+	--JOIN rq_raw.dbo.iQclerk_SaleInvoicesAndProducts AS sip WITH(NOLOCK) ON si.SaleInvoiceID = sip.SaleInvoiceID
+	[DATAMART_ANALYTICS].rq.[DeviceMix] ('2020-01-01', '2020-02-01') AS si
+	JOIN [rq_raw].[dbo].iQmetrix_Customer_Information AS ci WITH (NOLOCK) on si.CustomerID = ci.Id_Number
+	LEFT JOIN DATAMART_ANALYTICS.rq.Sku AS act WITH(NOLOCK) ON si.ActivationID = act.GlobalProductID
+	LEFT JOIN DATAMART_ANALYTICS.rq.Sku AS dev WITH(NOLOCK) ON si.DeviceID = dev.GlobalProductID
+	LEFT JOIN DATAMART_ANALYTICS.rq.Sku AS isp WITH(NOLOCK) ON si.ISPUID = dev.GlobalProductID
+	JOIN DATAMART_ANALYTICS.rq.Stores AS st WITH(NOLOCK) ON st.StoreID = si.StoreID
+		--LEFT JOIN victra_dw.rq_metrics.metrics_components AS mc WITH(NOLOCK) ON gp.Sku = mc.sku AND mc.end_date IS NULL
+
+
+WHERE
+	phone5 <> ''
+	AND phone5 IS NOT NULL
+	AND ci.Phone5 NOT IN
+	(
+		SELECT * 
+		FROM [DATAMART_MARKETING].[dbo].[email_exclusions]
+	)
+
+GROUP BY
+	 CAST(ci.Date_Created AS DATE)
+	 , CAST(si.DateCreated AS date)
+	 , si.InvoiceNum
+	, CASE WHEN ci.Customer_Name = '' THEN ci.First_Name + ' ' + ci.Last_Name ELSE ci.Customer_Name END
+	, ci.Phone5
+	, st.City 
+	, CAST(st.StoreName AS Varchar(500))
+	, CAST(st.Province as varchar(500))
+	, si.ActAssnNum 
+	, si.SerialNumber
+	, CAST(dev.Manufacturer as varchar(550))
+	, CAST(st.District as varchar(500)) 
+	, CAST(st.Region as varchar(500)) 
+	, CAST(st.Area as varchar(500)) 
+	, dev.Model
+	, dev.SubMetric
+	, act.Sku
+	, si.DeviceName
+	, si.DeviceQty
+	, si.ActivationQty
+	, si.TotalGrossProfit
+
+
+UNION ALL
+
+
+SELECT DISTINCT
+CAST(ci.Date_Created AS DATE) AS CustomerDate
+, CAST(si.DateCreated AS DATE) AS SalesDate
+, si.InvoiceIDByStore AS InvoiceNum
+, CASE WHEN ci.Customer_Name = '' THEN ci.First_Name + ' ' + ci.Last_Name ELSE ci.Customer_Name END AS CustomerName
+, ci.Phone5 AS EmailAddress
+, CAST(st.StoreName AS Varchar(500)) AS [StoreName]
+, st.City AS StoreCity
+, CAST(st.Province AS Varchar(500)) AS [StoreState]
+, CAST(st.District as varchar(500)) AS District
+, CAST(st.Region as varchar(500)) AS Region
+, CAST(st.Area as varchar(500)) AS Area
+, Cast(0 AS smallint) AS [AssociationNumber]
+, sip.SerialNumber
+, CAST(da.Manufacturer as varchar(550)) AS Manufacturer
+, da.Model
+, da.SubMetric 
+, da.sku
+, da.SkuName AS DeviceName
+, Cast(0 AS Int) AS DeviceQty
+, CAST(0 AS Int) AS ActivationQty
+, sip.Quantity AS AccessoryQty
+, CAST(0 AS Int) AS GeneralGP
+
+from [rq_raw].[dbo].iQclerk_SaleInvoices si WITH (NOLOCK)
+join [rq_raw].[dbo].iQclerk_SaleInvoicesAndProducts sip WITH (NOLOCK) on sip.SaleInvoiceID = si.SaleInvoiceID
+join DATAMART_ANALYTICS.rq.Sku da WITH (NOLOCK) on da.GlobalProductID = sip.GlobalProductID 
+join [rq_raw].[dbo].iQmetrix_Customer_Information ci WITH (NOLOCK) on si.CustomerID1 = ci.Id_Number
+left join [rq_raw].[dbo].[iQclerk_RegularGlobalProducts] rgp WITH (NOLOCK) ON da.GlobalProductID = rgp.GlobalProductID
+left join [rq_raw].[optimized].iQclerk_Manufacturers man WITH (NOLOCK) on rgp.ManufacturerID = man.ManufacturerID
+JOIN DATAMART_ANALYTICS.rq.stores AS st WITH (NOLOCK) ON st.StoreID = si.StoreID2
+left join victra_dw.rq_metrics.metrics_components me WITH(NOLOCK) on me.sku = da.Sku AND end_date IS NULL 
+join victra_dw.rq_metrics.metrics mets WITH(NOLOCK) on mets.metric_ID = me.metric_ID 
+
+WHERE si.[DateCreated] BETWEEN '2020-01-01' AND '2020-02-01'
+	AND me.metric_ID = 90
+	--AND ci.Phone5 = 'dan.sullivan512@gmail.com'
+	AND ci.Phone5 <> ''
+	AND ci.Phone5 IS NOT NULL
+	AND ci.Phone5 NOT IN
+	(
+		SELECT * 
+		FROM [DATAMART_MARKETING].dbo.[email_exclusions]
+	)
+	AND sip.Quantity <> -1
+	AND (da.Model NOT IN ('COE','T2000') OR da.Model IS NULL)
+
+
+
+
+```
